@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                wai-throttler
-version:             0.1.0.1
+version:             0.1.0.2
 synopsis:            Wai middleware for request throttling
 -- description:         
 license:             MIT
@@ -12,6 +12,7 @@ maintainer:          maxim.kulkin@gmail.com
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
+extra-source-files:  changelog.md
 
 source-repository head
   type:                git
