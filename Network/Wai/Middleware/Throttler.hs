@@ -1,5 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{- |
+Wai middleware for request throttling.
+
+Basic idea: on every (matching) request a counter is incremented.
+If it exceeds given limit, request is blocked and error response
+is sent to client. Request counter resets after defined period of
+time.
+
+The `throttle' function limits request to the underlying
+application. If you wish to limit only parts of your requests
+you need to do the routing yourself. For convenience,
+`throttlePath' function is provided which applies throttling
+only for requests with matching URL path.
+-}
 module Network.Wai.Middleware.Throttler
   ( ThrottleCache(..)
   , newMemoryThrottleCache
@@ -18,13 +32,27 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 import Network.Wai (Request, Response, Middleware, rawPathInfo, responseLBS)
 import Network.HTTP.Types.Status (status403)
 
-class ThrottleCache c where
-  cacheCount :: c -> ByteString -> IO Int
+-- | Cache type class. Throttle cache is used to store request counts.
+-- Can store multiple counts via different keys. E.g. keys can be client
+-- IP addresses or user logins.
+class ThrottleCache cache where
+  -- | Increment count for given key and return new count value.
+  -- Cache should automatically reset counts to zero after a defined period.
+  cacheCount :: cache       -- ^ cache
+             -> ByteString  -- ^ key
+             -> IO Int
 
 
 data MemoryThrottleCache = MemoryThrottleCache Int NominalDiffTime (MVar (Map ByteString (UTCTime, Int)))
 
-newMemoryThrottleCache :: Int -> NominalDiffTime -> IO MemoryThrottleCache
+-- | Create in-memory throttle cache.
+--
+-- Normally throttle cache does not need to know what the limit
+-- is. But this one uses some trickery to prevent unnecessary
+-- calls to slow getCurrentTime function.
+newMemoryThrottleCache :: Int                    -- ^ limit
+                       -> NominalDiffTime        -- ^ limit renew period
+                       -> IO MemoryThrottleCache
 newMemoryThrottleCache limit period = fmap (MemoryThrottleCache limit period) $ newMVar Map.empty
 
 instance ThrottleCache MemoryThrottleCache where
@@ -52,29 +80,33 @@ instance ThrottleCache MemoryThrottleCache where
                   b = floor period
 
 
-throttlePath :: ThrottleCache c => ByteString -> c -> Int -> (Request -> Maybe ByteString) -> Middleware
+-- | Apply throttling to requests with matching URL path
+throttlePath :: ThrottleCache cache
+             => ByteString                    -- ^ URL path to match
+             -> cache                         -- ^ cache to store request counts
+             -> Int                           -- ^ request limit
+             -> (Request -> Maybe ByteString) -- ^ function to get cache key based on request. If Nothing is returned, request is not throttled
+             -> Middleware
 throttlePath path cache limit getKey app req = do
   case pathMatches path req of
     False -> app req
     True -> throttle cache limit getKey app req
 
   where pathMatches :: ByteString -> Request -> Bool
-        pathMatches path request = B.take (B.length path) (rawPathInfo request) == path
+        pathMatches path request = (rawPathInfo request) == path
 
-throttle :: ThrottleCache c => c -> Int -> (Request -> Maybe ByteString) -> Middleware
+-- | Wai middleware that cuts requests if request rate is higher than defined level.
+-- Responds with 403 if limit exceeded
+throttle :: ThrottleCache cache
+         => cache                         -- ^ cache to store request counts
+         -> Int                           -- ^ request limit
+         -> (Request -> Maybe ByteString) -- ^ function to get cache key based on request. If Nothing is returned, request is not throttled
+         -> Middleware
 throttle cache limit getKey app req = do
   case getKey req of
     Nothing -> app req
     Just key -> do
       count <- cacheCount cache key
-      if count > limit then return (throttledResponse count limit) else app req
+      if count > limit then return throttledResponse else app req
 
-  where throttledResponse :: Int -> Int -> Response
-        throttledResponse count limit =
-          responseLBS status403
-                      [ ("X-RateLimit-Limit", bs limit)
-                      , ("X-RateLimit-Remaining", bs remaining)
-                      ]
-                      ""
-          where bs = B8.pack . show
-                remaining = max 0 (limit - count)
+  where throttledResponse = responseLBS status403 [] ""
