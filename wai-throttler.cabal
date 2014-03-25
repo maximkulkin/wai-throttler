@@ -9,14 +9,16 @@ license:             MIT
 license-file:        LICENSE
 author:              Maxim Kulkin
 maintainer:          maxim.kulkin@gmail.com
--- copyright:           
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 
+source-repository head
+  type:                git
+  location:            https://github.com/maximkulkin/wai-throttler
+
 library
   exposed-modules:     Network.Wai.Middleware.Throttler
-  -- other-modules:       
   build-depends:       base >=4.6 && <4.7
                      , bytestring == 0.10.*
                      , containers == 0.5.*
