@@ -30,7 +30,7 @@ import Data.ByteString.Char8 as B8 (pack)
 import Data.Time.Clock (getCurrentTime, UTCTime, NominalDiffTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 import Network.Wai (Request, Response, Middleware, rawPathInfo, responseLBS)
-import Network.HTTP.Types.Status (status403)
+import Network.HTTP.Types.Status (tooManyRequests429)
 
 -- | Cache type class. Throttle cache is used to store request counts.
 -- Can store multiple counts via different keys. E.g. keys can be client
@@ -96,7 +96,7 @@ throttlePath path cache limit getKey app req = do
         pathMatches path request = (rawPathInfo request) == path
 
 -- | Wai middleware that cuts requests if request rate is higher than defined level.
--- Responds with 403 if limit exceeded
+-- Responds with 429 if limit exceeded
 throttle :: ThrottleCache cache
          => cache                         -- ^ cache to store request counts
          -> Int                           -- ^ request limit
@@ -109,4 +109,4 @@ throttle cache limit getKey app req = do
       count <- cacheCount cache key
       if count > limit then return throttledResponse else app req
 
-  where throttledResponse = responseLBS status403 [] ""
+  where throttledResponse = responseLBS tooManyRequests429 [] ""
